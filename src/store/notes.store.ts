@@ -1,3 +1,5 @@
+//notes.store.ts
+
 import { create } from "zustand"
 import { nanoid } from "nanoid"
 import { Folder, Note } from "@/types/notes"

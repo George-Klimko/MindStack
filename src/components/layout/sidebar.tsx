@@ -1,5 +1,7 @@
 "use client"
 
+
+//sidebar
 import { useState } from "react"
 import { AddFolderDialog } from "@/components/modal/add-folder-dialog"
 import { AddFolderDialogNote } from "../modal/add-notes-dialog"
