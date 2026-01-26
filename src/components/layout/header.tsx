@@ -1,107 +1,117 @@
-  "use client";
+"use client"
 
-  //header
-  import Image from "next/image";
-  import { ArrowUpRight, Settings, Plus } from "lucide-react";
-  import { Button } from "@/components/ui/button";
-  import {
-    InputGroup,
-    InputGroupAddon,
-    InputGroupInput,
-  } from "@/components/ui/input-group";
+import Image from "next/image"
+import { ArrowUpRight, Settings, Plus, LogOut } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group"
 
-  export default function Header() {
-    return (
-      <header
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@/components/ui/avatar"
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+
+import { signIn, signOut, useSession } from "next-auth/react"
+
+export default function Header() {
+  const { data: session, status } = useSession()
+
+  return (
+    <header
+      className="
+        sticky top-0 z-50
+        w-full h-16
+        flex items-center
+        border-b
+        bg-background/70 backdrop-blur
+        px-3 sm:px-4 lg:px-6
+      "
+    >
+      {/* Center — search */}
+      <div
         className="
-          sticky top-0 z-50
-          w-full h-16
-          flex items-center
-          border-b
-          bg-background/70 backdrop-blur
-          px-3 sm:px-4 lg:px-6
+          absolute left-1/2 -translate-x-1/2
+          hidden sm:block
+          w-full max-w-md lg:max-w-xl
+          px-2
         "
       >
-        {/* Left */}
+        <InputGroup>
+          <InputGroupInput
+            type="url"
+            placeholder="Paste a link to capture knowledge…"
+          />
+          <InputGroupAddon align="inline-end">
+            <Button size="icon" variant="ghost">
+              <ArrowUpRight className="h-4 w-4" />
+            </Button>
+          </InputGroupAddon>
+        </InputGroup>
+      </div>
 
+      {/* Right */}
+      <div className="ml-auto flex items-center gap-2">
+        {/* Mobile add */}
+        <Button size="icon" variant="ghost" className="sm:hidden">
+          <Plus className="h-5 w-5" />
+        </Button>
 
-        {/* Center — desktop & tablet */}
-        <div
-          className="
-            absolute left-1/2 -translate-x-1/2
-            hidden sm:block
-            w-full max-w-md lg:max-w-xl
-            px-2
-          "
-        >
-          <InputGroup
-            className="
-              transition-all
-              focus-within:scale-[1.01]
-              focus-within:shadow-lg
-              focus-within:shadow-primary/10
-            "
-          >
-            <InputGroupInput
-              type="url"
-              placeholder="Paste a link to capture knowledge…"
-              className="
-                transition-all
-                focus-visible:ring-2
-                focus-visible:ring-primary/30
-              "
-            />
-            <InputGroupAddon align="inline-end">
+        {/* Settings */}
+        <Button size="icon" variant="ghost">
+          <Settings className="h-5 w-5" />
+        </Button>
+
+        {/* AUTH */}
+        {status === "loading" ? null : session ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
               <Button
-                size="icon"
                 variant="ghost"
-                className="
-                  transition-all
-                  hover:bg-primary/10
-                  hover:scale-105
-                  active:scale-95
-                  group
-                "
+                className="flex items-center gap-2 px-2"
               >
-                <ArrowUpRight
-                  className="
-                    h-4 w-4
-                    transition-transform
-                    group-hover:-translate-y-0.5
-                    group-hover:translate-x-0.5
-                  "
-                />
+                <Avatar className="h-8 w-8">
+                  <AvatarImage src={session.user.image ?? ""} />
+                  <AvatarFallback>
+                    {session.user.email?.[0]?.toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+
+                <span className="hidden md:block text-sm">
+                  {session.user.email}
+                </span>
               </Button>
-            </InputGroupAddon>
-          </InputGroup>
-        </div>
+            </DropdownMenuTrigger>
 
-        {/* Right */}
-        <div className="ml-auto flex items-center gap-1 sm:gap-2">
-          {/* Mobile quick add */}
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem
+                onClick={() => signOut()}
+                className="gap-2"
+              >
+                <LogOut className="h-4 w-4" />
+                Выйти
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
           <Button
-            size="icon"
-            variant="ghost"
-            className="sm:hidden"
-            aria-label="Add link"
+            onClick={() => signIn("google")}
+            variant="outline"
           >
-            <Plus className="h-5 w-5" />
+            Войти через Google
           </Button>
-
-          {/* Settings */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="
-              transition-all
-              hover:bg-primary/10
-              hover:rotate-12
-              active:scale-95
-            "
-          >
-            <Settings className="h-5 w-5" />
-          </Button>
-        </div>
-      </header>
-    );
-  }
+        )}
+      </div>
+    </header>
+  )
+}

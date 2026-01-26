@@ -88,7 +88,7 @@ export function AppSidebar() {
                     <Button
                         size="icon"
                         variant="ghost"
-                        title="Add folder"
+                        title="Add Note"
                         onClick={(e => {
                           e.stopPropagation(); // Чтобы не срабатывал Collapsible
                           setSelectedFolderId(folder.id);
