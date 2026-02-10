@@ -2,7 +2,7 @@
 
 
 //sidebar
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { AddFolderDialog } from "@/components/modal/add-folder-dialog"
 import { AddFolderDialogNote } from "../modal/add-notes-dialog"
 import {
@@ -46,9 +46,12 @@ export function AppSidebar() {
   const folders = useNotesStore((s) => s.folders)
   const openFolders = useNotesStore((s) => s.openFolders)
   const toggleFolder = useNotesStore((s) => s.toggleFolder)
-  const updateNote = useNotesStore((s) => s.updateNote)
   const setActiveNote = useNotesStore((s) => s.setActiveNote)
+  const loadFolders = useNotesStore((s) => s.loadFolders)
 
+  useEffect(() => {
+    loadFolders()
+  }, [loadFolders])
   return (
       <>
     <Sidebar collapsible="offcanvas">
