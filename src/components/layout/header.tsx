@@ -88,7 +88,7 @@ export default function Header() {
                 </Avatar>
 
                 <span className="hidden md:block text-sm">
-                  {session.user.email}
+             
                 </span>
               </Button>
             </DropdownMenuTrigger>
