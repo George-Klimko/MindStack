@@ -1,7 +1,6 @@
 //notes.store.ts
 
 import { create } from "zustand"
-import { nanoid } from "nanoid"
 import { Folder, Note } from "@/types/notes"
 
 type NotesState = {
@@ -22,7 +21,7 @@ type NotesState = {
     folderId: string,
     noteId: string,
     updatedFields: Partial<Note>
-  ) => void
+  ) => Promise<void>
 
   setActiveNote: (noteId: string | null, folderId: string | null) => void
 }
@@ -33,6 +32,7 @@ export const useNotesStore = create<NotesState>((set) => ({
 
   folders: [],
   openFolders: {},
+
   activeNote: null,
   isLoading: false,
 
@@ -52,7 +52,6 @@ export const useNotesStore = create<NotesState>((set) => ({
       set({ isLoading: false })
     }
   },
-
 
   addFolder: async (title) => {
     const res = await fetch("/api/folders", {
@@ -88,11 +87,9 @@ export const useNotesStore = create<NotesState>((set) => ({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ folderId, title }),
     })
-
     if (!res.ok) return
 
     const note = (await res.json()) as Note
-
     set((state) => ({
       folders: state.folders.map((folder) =>
         folder.id === folderId
@@ -104,7 +101,6 @@ export const useNotesStore = create<NotesState>((set) => ({
       ),
     }))
   },
-
   
   toggleFolder: (folderId) =>
     set((state) => ({
@@ -114,21 +110,19 @@ export const useNotesStore = create<NotesState>((set) => ({
       },
     })),
 
-  updateNote: (folderId: string, noteId: string, updatedFields: Partial<Note>) => {
+  updateNote: async (folderId: string, noteId: string, updatedFields: Partial<Note>) => {
+    const previousFolders = useNotesStore.getState().folders
+
     set((state) => ({
       folders: state.folders.map((folder) => {
-        if (folder.id === folderId) {
-          return {
-            ...folder,
-            notes: folder.notes.map((note) => {
-              if (note.id === noteId) {
-                return { ...note, ...updatedFields }
-              }
-              return note
-            }),
-          }
+        if (folder.id !== folderId) return folder
+
+        return {
+          ...folder,
+          notes: folder.notes.map((note) =>
+            note.id === noteId ? { ...note, ...updatedFields } : note
+          ),
         }
-        return folder
       }),
     }))
 
@@ -139,18 +133,26 @@ export const useNotesStore = create<NotesState>((set) => ({
     if (updatedFields.tags !== undefined) payload.tags = updatedFields.tags
 
     if (Object.keys(payload).length > 0) {
-      fetch(`/api/notes/${noteId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }).catch(() => {})
+      try {
+        const res = await fetch(`/api/notes/${noteId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          credentials: "include",
+        })
+
+        if (!res.ok) {
+          set({ folders: previousFolders })
+        }
+      } catch {
+        set({ folders: previousFolders })
+      }
     }
   },
+
   setActiveNote: (noteId, folderId) =>
     set(() => ({
       activeNote: noteId && folderId ? { noteId, folderId } : null
     }))
-
-
 
 }))
