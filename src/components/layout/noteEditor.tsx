@@ -9,6 +9,8 @@ import {
   X,
   ExternalLink,
   Save,
+  Clock,
+  FileText,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -60,9 +62,17 @@ export function NoteEditor({ draft, onChange, onSave }: NoteEditorProps) {
       >
         {/* ---------- TOP BAR ---------- */}
         <div className="flex items-center justify-between px-6 py-3 border-b">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider font-semibold">
-            <Calendar className="w-3.5 h-3.5" />
-            {draft.date || "Сегодня"}
+          <div className="flex items-center gap-4 text-xs text-muted-foreground uppercase tracking-wider font-semibold">
+            <span className="flex items-center gap-2">
+              <Calendar className="w-3.5 h-3.5" />
+              {draft.date || "Сегодня"}
+            </span>
+            {draft.readingTimeMin != null && draft.readingTimeMin > 0 && (
+              <span className="flex items-center gap-2">
+                <Clock className="w-3.5 h-3.5" />
+                ~{draft.readingTimeMin} мин чтения
+              </span>
+            )}
           </div>
 
           <motion.div whileTap={{ scale: 0.95 }}>
@@ -94,6 +104,24 @@ export function NoteEditor({ draft, onChange, onSave }: NoteEditorProps) {
                 resize-none placeholder:text-muted-foreground/30 p-0
               "
             />
+
+            {/* ----- SUMMARY ----- */}
+            {draft.summary && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.03 }}
+                className="p-4 rounded-xl bg-primary/5 dark:bg-primary/10 border border-primary/20"
+              >
+                <div className="flex items-center gap-2 mb-2 text-sm font-medium text-primary">
+                  <FileText className="w-4 h-4" />
+                  Краткая суть
+                </div>
+                <p className="text-sm text-muted-foreground whitespace-pre-line leading-relaxed">
+                  {draft.summary}
+                </p>
+              </motion.div>
+            )}
 
             {/* ----- META PANEL ----- */}
             <motion.div

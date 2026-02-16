@@ -1,6 +1,4 @@
-// types/note-editor.ts (или types/ui.ts)
-
-import { BlobOptions } from "buffer"
+// types/note-editor.ts
 
 export interface NoteDraft {
   title: string
@@ -8,6 +6,8 @@ export interface NoteDraft {
   tags: string[]
   link: string
   date: string
+  summary?: string
+  readingTimeMin?: number
 }
 
 export interface NoteEditorProps {

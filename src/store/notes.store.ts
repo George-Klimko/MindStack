@@ -14,6 +14,7 @@ type NotesState = {
   removeFolder: (folderId: string) => void
 
   addNote: (folderId: string, title: string) => Promise<void>
+  addNoteFromCapture: (note: Note, folderId: string) => void
 
   toggleFolder: (folderId: string) => void
 
@@ -26,7 +27,7 @@ type NotesState = {
   setActiveNote: (noteId: string | null, folderId: string | null) => void
 }
 
-type NotePayload = Pick<Note, "title" | "content" | "link" | "tags">
+type NotePayload = Pick<Note, "title" | "content" | "link" | "tags" | "summary" | "readingTimeMin">
 
 export const useNotesStore = create<NotesState>((set) => ({
 
@@ -101,7 +102,17 @@ export const useNotesStore = create<NotesState>((set) => ({
       ),
     }))
   },
-  
+
+  addNoteFromCapture: (note, folderId) => {
+    set((state) => ({
+      folders: state.folders.map((folder) =>
+        folder.id === folderId
+          ? { ...folder, notes: [note, ...folder.notes] }
+          : folder
+      ),
+    }))
+  },
+
   toggleFolder: (folderId) =>
     set((state) => ({
       openFolders: {
@@ -131,6 +142,8 @@ export const useNotesStore = create<NotesState>((set) => ({
     if (updatedFields.content !== undefined) payload.content = updatedFields.content
     if (updatedFields.link !== undefined) payload.link = updatedFields.link
     if (updatedFields.tags !== undefined) payload.tags = updatedFields.tags
+    if (updatedFields.summary !== undefined) payload.summary = updatedFields.summary
+    if (updatedFields.readingTimeMin !== undefined) payload.readingTimeMin = updatedFields.readingTimeMin
 
     if (Object.keys(payload).length > 0) {
       try {

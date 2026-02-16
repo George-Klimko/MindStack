@@ -3,27 +3,32 @@ import { getServerSession } from "next-auth"
 import { NextResponse } from "next/server"
 import { authOptions } from "../auth/[...nextauth]/route"
 
+type NoteInFolder = {
+  id: string
+  title: string
+  content: string
+  link: string | null
+  tags: string[]
+  date: Date
+  summary?: string | null
+  readingTimeMin?: number | null
+}
+
 const serializeFolder = (folder: {
   id: string
   name: string
-  notes: {
-    id: string
-    title: string
-    content: string
-    link: string | null
-    tags: string[]
-    date: Date
-  }[]
+  notes: NoteInFolder[]
 }) => ({
   id: folder.id,
   title: folder.name,
   notes: folder.notes.map((note) => ({
     id: note.id,
     title: note.title,
-    summary: "",
+    summary: note.summary ?? "",
     content: note.content,
     link: note.link ?? undefined,
     tags: note.tags,
+    readingTimeMin: note.readingTimeMin ?? undefined,
     date: note.date.toISOString(),
   })),
 })

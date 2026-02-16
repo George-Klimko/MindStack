@@ -15,7 +15,7 @@ datasource db {
 
 
 model User {
-  id        String @db.Uuid  @id @default(uuid())
+  id        String   @id @default(cuid())
   name      String
   email     String?  @unique
   image     String?
@@ -58,12 +58,14 @@ model Folder {
 
 
 model Note {
-  id      String   @id @default(cuid())
-  title   String
-  content String
-  link    String?
-  tags    String[]
-  date    DateTime @default(now())
+  id             String   @id @default(uuid())
+  title          String
+  content        String
+  link           String?
+  tags           String[]
+  summary        String?
+  readingTimeMin Int?
+  date           DateTime @default(now())
 
   folderId String
   folder   Folder  @relation(fields: [folderId], references: [id], onDelete: Cascade)

@@ -14,6 +14,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ noteId
     content?: unknown
     link?: unknown
     tags?: unknown
+    summary?: unknown
+    readingTimeMin?: unknown
   }
 
   const existingNote = await prisma.note.findFirst({
@@ -29,6 +31,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ noteId
     content?: string
     link?: string | null
     tags?: string[]
+    summary?: string | null
+    readingTimeMin?: number | null
   } = {}
 
   if (typeof payload.title === "string") data.title = payload.title.trim()
@@ -38,6 +42,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ noteId
   if (Array.isArray(payload.tags)) {
     data.tags = payload.tags.filter((tag): tag is string => typeof tag === "string")
   }
+  if (typeof payload.summary === "string") data.summary = payload.summary
+  if (payload.summary === null) data.summary = null
+  if (typeof payload.readingTimeMin === "number" && payload.readingTimeMin >= 0) {
+    data.readingTimeMin = payload.readingTimeMin
+  }
+  if (payload.readingTimeMin === null) data.readingTimeMin = null
 
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 })
@@ -51,10 +61,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ noteId
   return NextResponse.json({
     id: note.id,
     title: note.title,
-    summary: "",
+    summary: note.summary ?? "",
     content: note.content,
     link: note.link ?? undefined,
     tags: note.tags,
+    readingTimeMin: note.readingTimeMin ?? undefined,
     date: note.date.toISOString(),
   })
 }

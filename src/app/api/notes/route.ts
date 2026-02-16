@@ -9,22 +9,29 @@ type CreateNoteBody = {
   content?: unknown
   link?: unknown
   tags?: unknown
+  summary?: unknown
+  readingTimeMin?: unknown
 }
 
-const serializeNote = (note: {
+type NoteRecord = {
   id: string
   title: string
   content: string
   link: string | null
   tags: string[]
   date: Date
-}) => ({
+  summary?: string | null
+  readingTimeMin?: number | null
+}
+
+const serializeNote = (note: NoteRecord) => ({
   id: note.id,
   title: note.title,
-  summary: "",
+  summary: note.summary ?? "",
   content: note.content,
   link: note.link ?? undefined,
   tags: note.tags,
+  readingTimeMin: note.readingTimeMin ?? undefined,
   date: note.date.toISOString(),
 })
 
@@ -53,6 +60,9 @@ export async function POST(req: Request) {
   const content = typeof body.content === "string" ? body.content : ""
   const link = typeof body.link === "string" ? body.link : null
   const tags = Array.isArray(body.tags) ? body.tags.filter((tag): tag is string => typeof tag === "string") : []
+  const summary = typeof body.summary === "string" ? body.summary : null
+  const readingTimeMin =
+    typeof body.readingTimeMin === "number" && body.readingTimeMin > 0 ? body.readingTimeMin : null
 
   if (!folderId || !title) return NextResponse.json({ error: "Folder and title are required" }, { status: 400 })
 
@@ -60,14 +70,17 @@ export async function POST(req: Request) {
     where: { id: folderId, userId },
     select: { id: true },
   })
-  // ожидаем { folderId, title, content, tags, link }
+  if (!folder) return NextResponse.json({ error: "Folder not found" }, { status: 404 })
+
   const note = await prisma.note.create({
     data: {
       title,
       content,
       link,
       tags,
-      folderId,
+      summary,
+      readingTimeMin,
+      folderId: folder.id,
     },
   })
 

@@ -48,7 +48,10 @@ export default function TestGemini() {
     const hasChanges =
       draft.title !== activeNote?.title ||
       draft.content !== activeNote?.content ||
-      draft.link !== activeNote?.link
+      draft.link !== activeNote?.link ||
+      JSON.stringify(draft.tags) !== JSON.stringify(activeNote?.tags) ||
+      draft.summary !== activeNote?.summary ||
+      draft.readingTimeMin !== activeNote?.readingTimeMin
 
     if (!hasChanges) return
 

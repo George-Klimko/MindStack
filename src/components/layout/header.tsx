@@ -1,7 +1,7 @@
 "use client"
 
-import Image from "next/image"
-import { ArrowUpRight, Settings, Plus, LogOut } from "lucide-react"
+import { useState, useCallback } from "react"
+import { ArrowUpRight, Settings, Plus, LogOut, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   InputGroup,
@@ -23,9 +23,71 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 import { signIn, signOut, useSession } from "next-auth/react"
+import { useNotesStore } from "@/store/notes.store"
+import { Note } from "@/types/notes"
+
+function isToday(dateStr: string): boolean {
+  const date = new Date(dateStr)
+  const today = new Date()
+  return (
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate()
+  )
+}
 
 export default function Header() {
   const { data: session, status } = useSession()
+  const folders = useNotesStore((s) => s.folders)
+  const addNoteFromCapture = useNotesStore((s) => s.addNoteFromCapture)
+  const setActiveNote = useNotesStore((s) => s.setActiveNote)
+
+  const [linkInput, setLinkInput] = useState("")
+  const [isCapturing, setIsCapturing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const notesCreatedToday = folders.reduce((acc, folder) => {
+    return acc + folder.notes.filter((n) => isToday(n.date)).length
+  }, 0)
+
+  const handleCapture = useCallback(async () => {
+    const url = linkInput.trim()
+    if (!url || !session) return
+
+    setIsCapturing(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/capture", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+        credentials: "include",
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        setError(data.error ?? "Ошибка при захвате")
+        return
+      }
+
+      const note = data as Note & { folderId: string }
+      addNoteFromCapture(note, note.folderId)
+      setLinkInput("")
+      setActiveNote(note.id, note.folderId)
+    } catch {
+      setError("Ошибка при захвате")
+    } finally {
+      setIsCapturing(false)
+    }
+  }, [linkInput, session, addNoteFromCapture, setActiveNote])
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      handleCapture()
+    }
+  }
 
   return (
     <header
@@ -38,26 +100,52 @@ export default function Header() {
         px-3 sm:px-4 lg:px-6
       "
     >
-      {/* Center — search */}
+      {/* Center — capture input */}
       <div
         className="
           absolute left-1/2 -translate-x-1/2
-          hidden sm:block
+          hidden sm:flex sm:items-center sm:gap-3
           w-full max-w-md lg:max-w-xl
           px-2
         "
       >
-        <InputGroup>
-          <InputGroupInput
-            type="url"
-            placeholder="Paste a link to capture knowledge…"
-          />
-          <InputGroupAddon align="inline-end">
-            <Button size="icon" variant="ghost">
-              <ArrowUpRight className="h-4 w-4" />
-            </Button>
-          </InputGroupAddon>
-        </InputGroup>
+        <div className="flex-1 flex flex-col gap-0.5">
+          <InputGroup>
+            <InputGroupInput
+              type="url"
+              placeholder="Paste a link to capture knowledge…"
+              value={linkInput}
+              onChange={(e) => {
+                setLinkInput(e.target.value)
+                setError(null)
+              }}
+              onKeyDown={handleKeyDown}
+              disabled={!session || isCapturing}
+            />
+            <InputGroupAddon align="inline-end">
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={handleCapture}
+                disabled={!session || !linkInput.trim() || isCapturing}
+              >
+                {isCapturing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ArrowUpRight className="h-4 w-4" />
+                )}
+              </Button>
+            </InputGroupAddon>
+          </InputGroup>
+          {error && (
+            <span className="text-xs text-destructive px-2">{error}</span>
+          )}
+        </div>
+        {session && (
+          <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+            Обработано сегодня: {notesCreatedToday}
+          </span>
+        )}
       </div>
 
       {/* Right */}
