@@ -1,0 +1,13 @@
+{
+  "mcp": {
+    "servers": {
+      "context7": {
+        "type": "http",
+        "url": "https://mcp.context7.com/mcp",
+        "headers": {
+          "Authorization": "ctx7sk-00296044-62eb-4df2-94fe-4081d657422a"
+        }
+      }
+    }
+  }
+}

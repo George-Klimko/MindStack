@@ -2,17 +2,21 @@
 
 import { GoogleGenAI } from '@google/genai';
 
-const GEMINI_CONTENT_LIMIT = 30000;
+const GEMINI_CONTENT_LIMIT = 6000;
+const GEMINI_TIMEOUT_MS = 100000;
 
 async function callGemini(prompt: string): Promise<string> {
   const client = new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY!,
   });
 
-  const interaction = await client.interactions.create({
-    model: 'gemini-3-flash-preview',
-    input: prompt,
-  });
+  const interaction = await client.interactions.create(
+    {
+      model: 'gemini-3-flash-preview',
+      input: prompt,
+    },
+    { timeout: GEMINI_TIMEOUT_MS }
+  );
 
   const outputs = interaction.outputs;
   if (!outputs || outputs.length === 0) {
@@ -36,17 +40,33 @@ export async function askGemini(prompt: string) {
   }
 }
 
+export type GenerateNoteResult = {
+  summary: string
+  detailed: string
+  tags: string[]
+}
+
 export async function generateSummaryAndTags(
   content: string
-): Promise<{ summary: string; tags: string[] }> {
+): Promise<GenerateNoteResult> {
   const truncated =
     content.length > GEMINI_CONTENT_LIMIT
       ? content.slice(0, GEMINI_CONTENT_LIMIT) + '...'
       : content;
 
-  const prompt = `Проанализируй текст и верни JSON с двумя полями:
+  const prompt = `Проанализируй текст страницы и верни JSON с тремя полями:
+
 1. "summary" — краткая суть из 3-5 ключевых мыслей, каждый пункт с новой строки через "\\n"
-2. "tags" — массив из 3-7 релевантных тегов на английском (например: #frontend, #react, #architecture)
+
+2. "detailed" — подробный структурированный пересказ. Требования:
+   - Передай ключевые идеи и детали
+   - Убери навигацию, меню, футер и повторяющиеся элементы интерфейса
+   - Не копируй текст дословно
+   - Пиши на русском языке
+   - Сделай логичную структуру с абзацами
+   - Объём: до 3000 слов (уровень детализации — как статья)
+
+3. "tags" — массив из 3-7 релевантных тегов на английском (например: frontend, react, architecture)
 
 Текст:
 ${truncated}
@@ -56,19 +76,29 @@ ${truncated}
   try {
     const response = await callGemini(prompt);
     const cleaned = response.replace(/```json?\s?|\s?```/g, '').trim();
-    const parsed = JSON.parse(cleaned) as { summary?: string; tags?: string[] };
+    const parsed = JSON.parse(cleaned) as {
+      summary?: string
+      detailed?: string
+      tags?: string[]
+    };
+
+    const detailed =
+      typeof parsed.detailed === 'string' ? parsed.detailed.trim() : '';
 
     return {
       summary:
-        typeof parsed.summary === 'string'
-          ? parsed.summary.trim()
-          : '',
+        typeof parsed.summary === 'string' ? parsed.summary.trim() : '',
+      detailed: detailed || content.slice(0, 10000),
       tags: Array.isArray(parsed.tags)
         ? parsed.tags.filter((t): t is string => typeof t === 'string').slice(0, 7)
         : [],
     };
   } catch (error) {
     console.error('generateSummaryAndTags Error:', error);
-    return { summary: '', tags: [] };
+    return {
+      summary: '',
+      detailed: content.slice(0, 10000),
+      tags: [],
+    };
   }
 }

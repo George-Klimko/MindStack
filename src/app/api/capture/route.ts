@@ -15,6 +15,13 @@ function isValidUrl(url: string): boolean {
   }
 }
 
+function normalizeForJina(url: string): string {
+  return url
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .trim()
+}
+
 function calculateReadingTimeMin(content: string): number {
   const wordCount = content.trim().split(/\s+/).filter(Boolean).length
   return Math.max(1, Math.ceil(wordCount / 200))
@@ -47,37 +54,44 @@ function decodeHtmlEntities(str: string): string {
 }
 
 async function fetchWithJina(url: string): Promise<{ title: string; content: string }> {
-  const jinaUrl = `https://r.jina.ai/${encodeURIComponent(url)}`
+  const normalized = normalizeForJina(url)
+  const jinaUrl = `https://r.jina.ai/${normalized}`
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), JINA_TIMEOUT_MS)
 
   try {
     const res = await fetch(jinaUrl, {
-      headers: { Accept: "application/json" },
       signal: controller.signal,
     })
+
     clearTimeout(timeout)
 
     if (!res.ok) {
       throw new Error(`Jina error: ${res.status}`)
     }
 
-    const data = (await res.json()) as { title?: string; content?: string }
-    const title = typeof data.title === "string" ? data.title.trim() || "Без названия" : "Без названия"
-    const content = typeof data.content === "string" ? data.content : ""
+    const text = await res.text()
 
-    if (content.length >= 50) {
-      return { title, content }
+    if (!text || text.length < 50) {
+      const fallback = await fetchOgFallback(url)
+      return {
+        title: fallback.title,
+        content: fallback.description,
+      }
     }
 
-    const fallback = await fetchOgFallback(url)
+    // первая строка обычно заголовок
+    const lines = text.split("\n").filter(Boolean)
+    const title = lines[0] || "Без названия"
+
     return {
-      title: fallback.title || title,
-      content: content || fallback.description,
+      title: title.trim(),
+      content: text,
     }
   } catch (err) {
     clearTimeout(timeout)
+
     const fallback = await fetchOgFallback(url)
     if (fallback.title || fallback.description) {
       return {
@@ -85,9 +99,11 @@ async function fetchWithJina(url: string): Promise<{ title: string; content: str
         content: fallback.description,
       }
     }
+
     throw err
   }
 }
+
 
 async function fetchOgFallback(url: string): Promise<{ title: string; description: string }> {
   const controller = new AbortController()
@@ -130,14 +146,14 @@ export async function POST(req: Request) {
 
   try {
     const { title: scrapedTitle, content } = await fetchWithJina(url)
-    console.log("CONTENT LENGTH:", content.length)
 
-    const { summary, tags } =
+    const { summary, detailed, tags } =
       content.length > 30
         ? await generateSummaryAndTags(content)
-        : { summary: "", tags: [] as string[] }
+        : { summary: "", detailed: content, tags: [] as string[] }
 
-    const readingTimeMin = content.length > 0 ? calculateReadingTimeMin(content) : null
+    const finalContent = content.length > 30 ? detailed : content
+    const readingTimeMin = finalContent.length > 0 ? calculateReadingTimeMin(finalContent) : null
 
     let inbox = await prisma.folder.findFirst({
       where: { name: "Inbox", userId },
@@ -154,7 +170,7 @@ export async function POST(req: Request) {
     const note = await prisma.note.create({
       data: {
         title: scrapedTitle,
-        content: content.slice(0, 100_000),
+        content: finalContent,
         link: url,
         tags,
         summary: summary || null,
