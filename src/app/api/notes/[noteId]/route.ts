@@ -8,7 +8,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ noteId
   const userId = session?.user?.id
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { noteId } = await params; 
+  const { noteId } = await params;
   const payload = (await req.json()) as {
     title?: unknown
     content?: unknown
@@ -67,5 +67,37 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ noteId
     tags: note.tags,
     readingTimeMin: note.readingTimeMin ?? undefined,
     date: note.date.toISOString(),
+  })
+}
+
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ noteId: string }> }
+) {
+  const session = await getServerSession(authOptions)
+  const userId = session?.user?.id
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const { noteId } = await params
+
+  // Проверяем что заметка принадлежит пользователю
+  const existingNote = await prisma.note.findFirst({
+    where: { id: noteId, folder: { userId } },
+  })
+
+  if (!existingNote) {
+    return NextResponse.json({ error: "Note not found" }, { status: 404 })
+  }
+
+  // Удаляем заметку
+  await prisma.note.delete({
+    where: { id: noteId },
+  })
+
+  return NextResponse.json({
+    success: true,
+    message: "Note deleted",
   })
 }

@@ -1,78 +1,204 @@
 //notes.store.ts
 
 import { create } from "zustand"
-import { Folder, Note } from "@/types/notes"
+import { type Note, type Folder } from "@/entities/note/types"
+import { type NotesState } from "@/app/store/types"
 
-type NotesState = {
-  folders: Folder[]
-  openFolders: Record<string, boolean>
-  activeNote: { noteId: string, folderId: string } | null
-  isLoading: boolean
+/**
+ * Время жизни кэша в миллисекундах
+ * 5 минут = 5 * 60 * 1000
+ */
+const CACHE_TTL_MS = 5 * 60 * 1000
 
-  loadFolders: () => Promise<void>
-  addFolder: (title: string) => Promise<void>
-  removeFolder: (folderId: string) => void
-
-  addNote: (folderId: string, title: string) => Promise<void>
-  addNoteFromCapture: (note: Note, folderId: string) => void
-
-  toggleFolder: (folderId: string) => void
-
-  updateNote: (
-    folderId: string,
-    noteId: string,
-    updatedFields: Partial<Note>
-  ) => Promise<void>
-
-  setActiveNote: (noteId: string | null, folderId: string | null) => void
-}
-
-type NotePayload = Pick<Note, "title" | "content" | "link" | "tags" | "summary" | "readingTimeMin">
-
-export const useNotesStore = create<NotesState>((set) => ({
+export const useNotesStore = create<NotesState>((set, get) => ({
 
   folders: [],
   openFolders: {},
-
   activeNote: null,
   isLoading: false,
+  
+  // Кэширование
+  lastFetchTime: null,
+  isInitialized: false,
+  notesLastFetchTime: null,
 
-  loadFolders: async () => {
+  /**
+   * Загрузка заметок с кэшированием
+   */
+  loadNotes: async (force = false) => {
+    const state = get()
+    const now = Date.now()
+    
+    // Проверяем кэш
+    if (!force && state.notesLastFetchTime) {
+      const cacheAge = now - state.notesLastFetchTime
+      if (cacheAge < CACHE_TTL_MS) {
+        console.log(` Using cached notes (age: ${Math.floor(cacheAge / 1000)}s)`)
+        return
+      }
+    }
+
     set({ isLoading: true })
+    
     try {
-      const res = await fetch("/api/folders")
+      const res = await fetch("/api/notes")
       if (!res.ok) return
 
+      const notes = (await res.json()) as (Note & { folder: { id: string; name: string } })[]
+      
+      // Распределяем заметки по папкам
+      set((state) => {
+        const newFolders = [...state.folders]
+        
+        notes.forEach((note) => {
+          const folderIndex = newFolders.findIndex((f) => f.id === note.folder.id)
+          if (folderIndex !== -1) {
+            // Проверяем нет ли уже такой заметки
+            const noteExists = newFolders[folderIndex].notes.some((n) => n.id === note.id)
+            if (!noteExists) {
+              newFolders[folderIndex] = {
+                ...newFolders[folderIndex],
+                notes: [note, ...newFolders[folderIndex].notes],
+              }
+            }
+          }
+        })
+        
+        return {
+          folders: newFolders,
+          notesLastFetchTime: now,
+          isLoading: false,
+        }
+      })
+      
+      console.log(`Loaded ${notes.length} notes`)
+    } catch (error) {
+      console.error('Error loading notes:', error)
+      set({ isLoading: false })
+    }
+  },
+
+  /**
+   * Загрузка папок с кэшированием
+   * @param force - принудительная загрузка (игнорировать кэш)
+   */
+  loadFolders: async (force = false) => {
+    const state = get()
+    const now = Date.now()
+    
+    // Проверяем кэш
+    if (!force && state.isInitialized && state.lastFetchTime) {
+      const cacheAge = now - state.lastFetchTime
+      if (cacheAge < CACHE_TTL_MS) {
+        // Кэш ещё валиден (меньше 5 минут)
+        console.log(` Using cached folders (age: ${Math.floor(cacheAge / 1000)}s)`)
+        return
+      }
+    }
+    
+    // Проверяем не загружается ли уже
+    if (state.isLoading) {
+      console.log(' Already loading...')
+      return
+    }
+
+    set({ isLoading: true })
+    
+    try {
+      const res = await fetch("/api/folders")
+      if (!res.ok) {
+        console.error('Failed to fetch folders:', res.status)
+        return
+      }
+
       const folders = (await res.json()) as Folder[]
+      
       set({
         folders,
         openFolders: Object.fromEntries(folders.map((folder) => [folder.id, true])),
+        lastFetchTime: now,
+        isInitialized: true,
         isLoading: false,
       })
+      
+      console.log(` Loaded ${folders.length} folders`)
+    } catch (error) {
+      console.error('Error loading folders:', error)
+      set({ isLoading: false })
     } finally {
       set({ isLoading: false })
     }
   },
 
   addFolder: async (title) => {
-    const res = await fetch("/api/folders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title }),
-    })
-    if (!res.ok) return
+    // Оптимистичное создание папки
+    const tempFolderId = `temp-${Date.now()}`
+    const tempFolder: Folder = {
+      id: tempFolderId,
+      title: title.trim(),
+      notes: [],
+    }
 
-    const folder = (await res.json()) as Folder
+    // Сразу добавляем в стейт
     set((state) => ({
-      folders: [...state.folders, folder],
+      folders: [...state.folders, tempFolder],
       openFolders: {
         ...state.openFolders,
-        [folder.id]: true,
+        [tempFolderId]: true,
       },
     }))
+
+    // Отправляем на сервер
+    try {
+      const res = await fetch("/api/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title.trim() }),
+      })
+
+      if (!res.ok) {
+        // Откат при ошибке
+        set((state) => ({
+          folders: state.folders.filter((f) => f.id !== tempFolderId),
+          openFolders: Object.fromEntries(
+            Object.entries(state.openFolders).filter(
+              ([id]) => id !== tempFolderId
+            )
+          ),
+        }))
+        return
+      }
+
+      const folder = (await res.json()) as Folder
+
+      // Заменяем временную папку на реальную с сервера
+      set((state) => ({
+        folders: state.folders.map((f) =>
+          f.id === tempFolderId ? folder : f
+        ),
+        openFolders: {
+          ...state.openFolders,
+          [folder.id]: true,
+        },
+      }))
+    } catch {
+      // Откат при ошибке сети
+      set((state) => ({
+        folders: state.folders.filter((f) => f.id !== tempFolderId),
+        openFolders: Object.fromEntries(
+          Object.entries(state.openFolders).filter(
+            ([id]) => id !== tempFolderId
+          )
+        ),
+      }))
+    }
   },
   
-  removeFolder: (folderId) =>
+  removeFolder: async (folderId) => {
+    // Сохраняем предыдущее состояние для отката
+    const previousFolders = useNotesStore.getState().folders
+
+    // Оптимистичное удаление — сразу удаляем из стейта
     set((state) => ({
       folders: state.folders.filter((f) => f.id !== folderId),
       openFolders: Object.fromEntries(
@@ -80,27 +206,104 @@ export const useNotesStore = create<NotesState>((set) => ({
           ([id]) => id !== folderId
         )
       ),
-    })),
+      // Сбрасываем activeNote если удалили активную папку
+      activeNote: state.activeNote?.folderId === folderId ? null : state.activeNote,
+    }))
+
+    // Отправляем запрос на сервер
+    try {
+      const res = await fetch(`/api/folders?folderId=${folderId}`, {
+        method: "DELETE",
+        credentials: "include",
+      })
+
+      if (!res.ok) {
+        // Откат при ошибке
+        set({ folders: previousFolders })
+      }
+    } catch {
+      // Откат при ошибке сети
+      set({ folders: previousFolders })
+    }
+  },
 
   addNote: async (folderId, title) => {
-    const res = await fetch("/api/notes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ folderId, title }),
-    })
-    if (!res.ok) return
+    // Оптимистичное создание заметки
+    const tempNoteId = `temp-${Date.now()}`
+    const tempNote: Note = {
+      id: tempNoteId,
+      title: title.trim(),
+      content: "",
+      tags: [],
+      date: new Date().toISOString(),
+      link: "",
+      summary: "",
+      readingTimeMin: 0,
+    }
 
-    const note = (await res.json()) as Note
+    // Сразу добавляем в стейт
     set((state) => ({
       folders: state.folders.map((folder) =>
         folder.id === folderId
           ? {
               ...folder,
-              notes: [note, ...folder.notes],
+              notes: [tempNote, ...folder.notes],
             }
           : folder
       ),
     }))
+
+    // Отправляем на сервер
+    try {
+      const res = await fetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folderId, title: title.trim() }),
+      })
+
+      if (!res.ok) {
+        // Откат при ошибке
+        set((state) => ({
+          folders: state.folders.map((folder) =>
+            folder.id === folderId
+              ? {
+                  ...folder,
+                  notes: folder.notes.filter((n) => n.id !== tempNoteId),
+                }
+              : folder
+          ),
+        }))
+        return
+      }
+
+      const note = (await res.json()) as Note
+
+      // Заменяем временную заметку на реальную с сервера
+      set((state) => ({
+        folders: state.folders.map((folder) =>
+          folder.id === folderId
+            ? {
+                ...folder,
+                notes: folder.notes.map((n) =>
+                  n.id === tempNoteId ? note : n
+                ),
+              }
+            : folder
+        ),
+      }))
+    } catch {
+      // Откат при ошибке сети
+      set((state) => ({
+        folders: state.folders.map((folder) =>
+          folder.id === folderId
+            ? {
+                ...folder,
+                notes: folder.notes.filter((n) => n.id !== tempNoteId),
+              }
+            : folder
+        ),
+      }))
+    }
   },
 
   addNoteFromCapture: (note, folderId) => {
@@ -111,6 +314,41 @@ export const useNotesStore = create<NotesState>((set) => ({
           : folder
       ),
     }))
+  },
+
+  removeNote: async (folderId, noteId) => {
+    // Сохраняем предыдущее состояние для отката
+    const previousFolders = useNotesStore.getState().folders
+
+    // Оптимистичное удаление — сразу удаляем из стейта
+    set((state) => ({
+      folders: state.folders.map((folder) =>
+        folder.id === folderId
+          ? {
+              ...folder,
+              notes: folder.notes.filter((n) => n.id !== noteId),
+            }
+          : folder
+      ),
+      // Сбрасываем activeNote если удалили активную заметку
+      activeNote: state.activeNote?.noteId === noteId ? null : state.activeNote,
+    }))
+
+    // Отправляем запрос на сервер
+    try {
+      const res = await fetch(`/api/notes/${noteId}`, {
+        method: "DELETE",
+        credentials: "include",
+      })
+
+      if (!res.ok) {
+        // Откат при ошибке
+        set({ folders: previousFolders })
+      }
+    } catch {
+      // Откат при ошибке сети
+      set({ folders: previousFolders })
+    }
   },
 
   toggleFolder: (folderId) =>
@@ -137,7 +375,7 @@ export const useNotesStore = create<NotesState>((set) => ({
       }),
     }))
 
-    const payload: Partial<NotePayload> = {}
+    const payload: Partial<Note> = {}
     if (updatedFields.title !== undefined) payload.title = updatedFields.title
     if (updatedFields.content !== undefined) payload.content = updatedFields.content
     if (updatedFields.link !== undefined) payload.link = updatedFields.link

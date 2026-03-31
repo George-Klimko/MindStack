@@ -13,7 +13,7 @@ type CreateNoteBody = {
   readingTimeMin?: unknown
 }
 
-type NoteRecord = {
+type NoteWithFolder = {
   id: string
   title: string
   content: string
@@ -22,9 +22,13 @@ type NoteRecord = {
   date: Date
   summary?: string | null
   readingTimeMin?: number | null
+  folder: {
+    id: string
+    name: string
+  }
 }
 
-const serializeNote = (note: NoteRecord) => ({
+const serializeNote = (note: NoteWithFolder) => ({
   id: note.id,
   title: note.title,
   summary: note.summary ?? "",
@@ -33,16 +37,57 @@ const serializeNote = (note: NoteRecord) => ({
   tags: note.tags,
   readingTimeMin: note.readingTimeMin ?? undefined,
   date: note.date.toISOString(),
+  folder: note.folder,
 })
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getServerSession(authOptions)
   const userId = session?.user?.id
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  // Получаем query параметры для фильтрации
+  const { searchParams } = new URL(req.url)
+  const search = searchParams.get("search") || ""
+  const tag = searchParams.get("tag") || ""
+  const folderId = searchParams.get("folderId") || ""
+
+  // Базовый where для фильтрации по пользователю
+  const where: any = {
+    folder: { userId },
+  }
+
+  // Поиск по title, content, summary
+  if (search) {
+    where.OR = [
+      { title: { contains: search, mode: "insensitive" } },
+      { content: { contains: search, mode: "insensitive" } },
+      { summary: { contains: search, mode: "insensitive" } },
+    ]
+  }
+
+  // Фильтр по тегу
+  if (tag) {
+    where.tags = { has: tag }
+  }
+
+  // Фильтр по папке
+  if (folderId) {
+    where.folderId = folderId
+  }
+
   const notes = await prisma.note.findMany({
-    where: { folder: { userId } },
+    where,
     orderBy: { date: "desc" },
+    include: {
+      folder: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
   })
 
   return NextResponse.json(notes.map(serializeNote))
@@ -82,8 +127,15 @@ export async function POST(req: Request) {
       readingTimeMin,
       folderId: folder.id,
     },
+    include: {
+      folder: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
   })
 
   return NextResponse.json(serializeNote(note))
 }
-

@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma"
 
 // Типизация authOptions
 export const authOptions: NextAuthOptions = {
+  // @ts-expect-error Prisma v7 compatibility
   adapter: PrismaAdapter(prisma), // Prisma нужен для пользователей
   providers: [
     GoogleProvider({

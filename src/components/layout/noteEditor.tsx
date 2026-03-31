@@ -15,12 +15,12 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { NoteEditorProps } from "@/types/noteEditor"
+import { type NoteEditorProps } from "@/shared/ui/types"
+import { MarkdownEditor } from "@/components/ui/markdown-editor"
 
-export function NoteEditor({ draft, onChange, onSave }: NoteEditorProps) {
+export function NoteEditor({ draft, onChange, onSave, isSaving }: NoteEditorProps) {
   const [tagInput, setTagInput] = useState("")
 
   /* ================= EMPTY STATE ================= */
@@ -47,6 +47,10 @@ export function NoteEditor({ draft, onChange, onSave }: NoteEditorProps) {
     onChange({
       tags: draft.tags.filter((t) => t !== tag),
     })
+  }
+
+  const handleContentChange = (markdown: string) => {
+    onChange({ content: markdown })
   }
 
   /* ================= MAIN EDITOR ================= */
@@ -79,29 +83,29 @@ export function NoteEditor({ draft, onChange, onSave }: NoteEditorProps) {
             <Button
               onClick={onSave}
               size="sm"
+              disabled={isSaving}
               className="gap-2 shadow-md hover:shadow-lg transition-all"
             >
               <Save className="w-4 h-4" />
-              Сохранить
+              {isSaving ? "Сохранение..." : "Сохранить"}
             </Button>
           </motion.div>
         </div>
 
         {/* ---------- CONTENT ---------- */}
         <div className="flex-1 overflow-y-auto custom-scrollbar">
-          <div className="p-8 space-y-8">
+          <div className="p-8 space-y-6">
 
             {/* ----- TITLE ----- */}
-            <motion.textarea
+            <motion.input
               value={draft.title}
               onChange={(e) => onChange({ title: e.target.value })}
               placeholder="Заголовок заметки..."
-              rows={1}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               className="
                 w-full text-4xl font-bold bg-transparent border-none outline-none
-                resize-none placeholder:text-muted-foreground/30 p-0
+                placeholder:text-muted-foreground/30
               "
             />
 
@@ -178,15 +182,17 @@ export function NoteEditor({ draft, onChange, onSave }: NoteEditorProps) {
                         >
                           <Badge
                             variant="secondary"
-                            className="pl-2 pr-1 py-1 gap-1 bg-primary/10 text-primary"
+                            className="pl-2 pr-1 gap-1 bg-primary/10 text-primary"
                           >
                             {tag}
-                            <button
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               onClick={() => removeTag(tag)}
-                              className="hover:bg-primary/20 rounded-full p-0.5"
+                              className="h-5 w-5 hover:bg-primary/20"
                             >
                               <X className="w-3 h-3" />
-                            </button>
+                            </Button>
                           </Badge>
                         </motion.div>
                       ))}
@@ -214,15 +220,12 @@ export function NoteEditor({ draft, onChange, onSave }: NoteEditorProps) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.1 }}
+              className="border rounded-lg overflow-hidden"
             >
-              <Textarea
-                value={draft.content}
-                onChange={(e) => onChange({ content: e.target.value })}
-                placeholder="Текст заметки..."
-                className="
-                  w-full min-h-[400px] text-lg leading-relaxed bg-transparent
-                  border-none resize-none placeholder:text-muted-foreground/20
-                "
+              <MarkdownEditor
+                content={draft.content}
+                onChange={handleContentChange}
+                placeholder="Напишите что-нибудь... (поддерживает markdown)"
               />
             </motion.div>
           </div>

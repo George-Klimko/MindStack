@@ -80,3 +80,42 @@ export async function POST(req: Request) {
 
   return NextResponse.json(serializeFolder(folder))
 }
+
+export async function DELETE(req: Request) {
+  const session = await getServerSession(authOptions)
+  const userId = session?.user?.id
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const { searchParams } = new URL(req.url)
+  const folderId = searchParams.get("folderId")
+
+  if (!folderId) {
+    return NextResponse.json({ error: "Folder ID is required" }, { status: 400 })
+  }
+
+  // Проверяем что папка принадлежит пользователю
+  const existingFolder = await prisma.folder.findFirst({
+    where: { id: folderId, userId },
+  })
+
+  if (!existingFolder) {
+    return NextResponse.json({ error: "Folder not found" }, { status: 404 })
+  }
+
+  // Нельзя удалить Inbox
+  if (existingFolder.name === "Inbox") {
+    return NextResponse.json({ error: "Cannot delete Inbox folder" }, { status: 403 })
+  }
+
+  // Удаляем папку (заметки удалятся каскадом)
+  await prisma.folder.delete({
+    where: { id: folderId },
+  })
+
+  return NextResponse.json({
+    success: true,
+    message: "Folder deleted",
+  })
+}
