@@ -40,6 +40,26 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# Prisma
 /src/generated/prisma
-
 /generated/prisma
+
+# IDE и редакторы
+/.cursor/
+/.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# AI ассистенты
+/.qwen/
+
+# Временные файлы
+*.log
+*.tmp
+*.temp
+
+# Документация (не для продакшена)
+AI-CATEGORIZATION.md
+ARCHITECTURE.md
+RESPONSIVE.md
+QWEN.md
