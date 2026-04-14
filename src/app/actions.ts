@@ -30,36 +30,60 @@ function createGeminiClient() {
 }
 
 /**
- * Базовый вызов Gemini с обработкой ошибок и таймаутом
- * 
+ * Базовый вызов Gemini с обработкой ошибок, таймаутом и retry
+ *
  * @param prompt - Промпт для AI
+ * @param retries - Количество повторных попыток (по умолчанию 2)
  * @returns Текст ответа от Gemini
  * @throws Error при таймауте или пустом ответе
  */
-async function callGemini(prompt: string): Promise<string> {
+async function callGemini(prompt: string, retries = 2): Promise<string> {
   const client = createGeminiClient();
 
-  const interaction = await client.interactions.create(
-    {
-      // ✅ Gemini 2.5 Flash — актуальная модель (Flash-Lite слишком простая для суммаризации)
-      model: 'gemini-2.5-flash',
-      input: prompt,
-    },
-    { timeout: GEMINI_TIMEOUT_MS }
-  );
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const interaction = await client.interactions.create(
+        {
+          model: 'gemini-2.5-flash',
+          input: prompt,
+        },
+        { timeout: GEMINI_TIMEOUT_MS }
+      );
 
-  const outputs = interaction.outputs;
-  if (!outputs || outputs.length === 0) {
-    throw new Error('Gemini вернул пустой outputs');
+      const outputs = interaction.outputs;
+      if (!outputs || outputs.length === 0) {
+        throw new Error('Gemini вернул пустой outputs');
+      }
+
+      const lastOutput = outputs[outputs.length - 1];
+      if (!lastOutput || typeof lastOutput !== 'object' || !('text' in lastOutput) || typeof lastOutput.text !== 'string') {
+        throw new Error('В outputs нет text');
+      }
+
+      return lastOutput.text;
+    } catch (error) {
+      const isServerError =
+        error instanceof Error &&
+        (error.message.includes('500') || error.message.includes('503'));
+
+      const isRateLimited =
+        error instanceof Error &&
+        (error.message.includes('429') || error.message.includes('retry-after'));
+
+      // Retry только при серверных ошибках и rate limiting
+      if ((isServerError || isRateLimited) && attempt < retries) {
+        const waitMs = Math.pow(2, attempt) * 1000 + Math.random() * 1000; // Exponential backoff + jitter
+        console.log(`⏳ Gemini error (attempt ${attempt + 1}/${retries + 1}), retrying in ${Math.round(waitMs / 1000)}s...`);
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+        continue;
+      }
+
+      // Пробрасываем ошибку если все попытки исчерпаны или ошибка не retryable
+      throw error;
+    }
   }
 
-  const lastOutput = outputs[outputs.length - 1];
-  // Типизированная проверка наличия text
-  if (!lastOutput || typeof lastOutput !== 'object' || !('text' in lastOutput) || typeof lastOutput.text !== 'string') {
-    throw new Error('В outputs нет text');
-  }
-
-  return lastOutput.text;
+  throw new Error('Все попытки вызова Gemini исчерпаны');
 }
 
 /**
