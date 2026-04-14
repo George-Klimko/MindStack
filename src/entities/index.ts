@@ -1,5 +1,5 @@
 /**
- * Entities — бизнес-сущности
+ *
  * @module entities
  */
 

@@ -331,8 +331,137 @@ function shortenTitle(title: string): string {
     .split(/[:|—–-]/)[0]
     .replace(/^(Как|Что|Где|Когда|Почему|Зачем)\s+/i, '') // Удаляем вопросительные слова
     .trim();
-  
+
   // Берём первые 3-4 слова
   const words = cleaned.split(/\s+/).filter(w => w.length > 2);
   return words.slice(0, 4).join(' ');
+}
+
+// ==================== АВТО-КАТЕГОРИЗАЦИЯ ====================
+
+/**
+ * Тип для результата генерации с авто-категоризацией
+ */
+export type GeneratedNoteDataWithCategory = {
+  summary: string
+  detailed: string
+  tags: string[]
+  shortTitle: string
+  folderName: string
+  confidence: number
+}
+
+/**
+ * Генерация summary, тегов И авто-категоризация по папкам
+ * Используется при захвате контента через /api/capture
+ */
+export async function generateSummaryAndTagsWithCategory(
+  content: string,
+  originalTitle: string,
+  folderNames: string[]
+): Promise<GeneratedNoteDataWithCategory> {
+  const truncated =
+    content.length > GEMINI_CONTENT_LIMIT
+      ? content.slice(0, GEMINI_CONTENT_LIMIT) + '\n\n[... текст обрезан ...]'
+      : content;
+
+  const foldersList = folderNames.length > 0
+    ? folderNames.map((f, i) => `${i + 1}. ${f}`).join('\n')
+    : '(нет папок — предложи название для новой)'
+
+  const prompt = [
+    'Ты — AI-ассистент для системы управления знаниями MindStack.',
+    'Проанализируй текст и создай заметку с авто-категоризацией.',
+    '',
+    'СУЩЕСТВУЮЩИЕ ПАПКИ:',
+    foldersList,
+    '',
+    'Верни JSON с полями:',
+    '1. shortTitle — 3-4 слова, без спецсимволов',
+    '2. summary — 4-8 пунктов через \\n, начинай с •',
+    '3. detailed — пересказ БЕЗ markdown (# * ** ` []), 1000-2000 слов',
+    '4. tags — 5-10 тегов на английском',
+    '5. folderName — выбери из списка ИЛИ предложи новую',
+    '6. confidence — число 0.0-1.0 (уверенность)',
+    '',
+    'Заголовок: ' + originalTitle,
+    '',
+    'Текст:',
+    truncated,
+    '',
+    'ВАЖНО: Только JSON, summary не пустой, confidence число!',
+  ].join('\n');
+
+  try {
+    const response = await callGemini(prompt);
+    const cleaned = response.replace(/```json?\s?|\s?```/g, '').trim();
+    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+
+    let detailed = typeof parsed.detailed === 'string' ? parsed.detailed.trim() : '';
+    detailed = cleanMarkdownSymbols(detailed);
+
+    let summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
+    if (!summary && detailed) {
+      summary = generateFallbackSummary(detailed);
+    }
+
+    let shortTitle = typeof parsed.shortTitle === 'string' ? parsed.shortTitle.trim() : '';
+    if (!shortTitle) {
+      shortTitle = shortenTitle(originalTitle);
+    }
+
+    const folderName = typeof parsed.folderName === 'string' && parsed.folderName.trim().length > 0
+      ? parsed.folderName.trim()
+      : 'Inbox';
+
+    const rawConfidence = typeof parsed.confidence === 'number' ? parsed.confidence : 0.5;
+    const confidence = Math.max(0, Math.min(1, rawConfidence));
+
+    const rawTags = parsed.tags;
+    const tags = Array.isArray(rawTags)
+      ? rawTags
+          .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+          .map((t) => t.trim())
+          .slice(0, 10)
+      : [];
+
+    return { summary, detailed, tags, shortTitle, folderName, confidence };
+  } catch (error) {
+    console.error('generateSummaryAndTagsWithCategory Error:', error);
+    return {
+      summary: '',
+      detailed: content.slice(0, 10000),
+      tags: extractTagsFromContent(content),
+      shortTitle: shortenTitle(originalTitle),
+      folderName: 'Inbox',
+      confidence: 0.0,
+    };
+  }
+}
+
+/**
+ * Извлекает теги из контента на основе частоты слов (fallback)
+ */
+function extractTagsFromContent(content: string): string[] {
+  const stopWords = new Set([
+    'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had',
+    'her', 'was', 'one', 'our', 'out', 'что', 'как', 'где', 'когда', 'этом',
+    'этот', 'этой', 'этого', 'такой', 'уже', 'его', 'нее', 'них', 'они',
+  ]);
+
+  const words = content
+    .toLowerCase()
+    .replace(/[^\w\sа-яё]/gi, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 3 && !stopWords.has(w));
+
+  const frequency: Record<string, number> = {};
+  words.forEach((w) => {
+    frequency[w] = (frequency[w] || 0) + 1;
+  });
+
+  return Object.entries(frequency)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([word]) => word.charAt(0).toUpperCase() + word.slice(1));
 }

@@ -1,9 +1,9 @@
 /**
- * Базовые типы для заметок
+
  * @module entities/note
  */
 
-/** Основная модель заметки */
+
 export interface Note {
   id: string
   title: string
@@ -13,17 +13,17 @@ export interface Note {
   date: string
   summary?: string
   readingTimeMin?: number
-  folderId?: string  // Для заметок в store
+  folderId?: string  
 }
 
-/** Модель папки с заметками */
+
 export interface Folder {
   id: string
   title: string
   notes: Note[]
 }
 
-/** Заметка с информацией о папке (для API) */
+
 export interface NoteWithFolder extends Note {
   folder: {
     id: string
@@ -31,12 +31,12 @@ export interface NoteWithFolder extends Note {
   }
 }
 
-/** Заметка внутри папки (для store) */
+
 export interface NoteInFolder extends Note {
   folderId: string
 }
 
-/** Данные для создания/обновления заметки */
+
 export interface NotePayload {
   title: string
   content?: string
@@ -46,19 +46,19 @@ export interface NotePayload {
   readingTimeMin?: number
 }
 
-/** Данные для создания папки */
+
 export interface FolderPayload {
   title: string
 }
 
-/** Параметры для фильтрации заметок */
+
 export interface NotesFilter {
   search?: string
   tag?: string
   folderId?: string
 }
 
-/** Результат генерации AI */
+
 export interface GeneratedNoteData {
   summary: string
   detailed: string
@@ -66,7 +66,7 @@ export interface GeneratedNoteData {
   shortTitle: string
 }
 
-/** Результат генерации AI с категоризацией */
+
 export interface GeneratedNoteDataWithCategory extends GeneratedNoteData {
   folderName: string
   confidence?: number
