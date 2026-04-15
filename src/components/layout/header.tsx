@@ -18,6 +18,8 @@ export default function Header() {
   const folders = useNotesStore((s) => s.folders)
   const addNoteFromCapture = useNotesStore((s) => s.addNoteFromCapture)
   const setActiveNote = useNotesStore((s) => s.setActiveNote)
+  const loadNotes = useNotesStore((s) => s.loadNotes)
+  const loadFolders = useNotesStore((s) => s.loadFolders)
 
   const [linkInput, setLinkInput] = useState("")
   const [isCapturing, setIsCapturing] = useState(false)
@@ -46,6 +48,11 @@ export default function Header() {
 
       const note = data as Note & { folderId: string }
       addNoteFromCapture(note, note.folderId)
+      
+      // 🔄 Перегружаем данные чтобы главная страница обновилась
+      await loadNotes(true)  // force = true, игнорируем кэш
+      await loadFolders(true)
+      
       setLinkInput("")
       setActiveNote(note.id, note.folderId)
     } catch {
