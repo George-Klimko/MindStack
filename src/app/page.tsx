@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Search, Filter, X } from "lucide-react"
 import { useNotesStore } from "@/store/notes.store"
@@ -17,11 +17,39 @@ export default function HomePage() {
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
 
-  const folders = useNotesStore((s) => s.folders)
+  const [notes, setNotes] = useState<NoteWithFolder[]>([])
   const removeNote = useNotesStore((s) => s.removeNote)
   const loadFolders = useNotesStore((s) => s.loadFolders)
-  const loadNotes = useNotesStore((s) => s.loadNotes)
+  const [allTags, setAllTags] = useState<string[]>([])
+  const folders = useNotesStore((s) => s.folders)
   const isInitialized = useNotesStore((s) => s.isInitialized)
+
+const loadFilteredNotes = useCallback(async () => {
+  setIsLoading(true)
+  
+  const params = new URLSearchParams()
+  if (searchQuery) params.set("search", searchQuery)
+  if (selectedTag) params.set("tag", selectedTag)
+  if (selectedFolder) params.set("folderId", selectedFolder)
+  
+  const res = await fetch(`/api/notes?${params}`)
+  if (res.ok) {
+    const data = await res.json()
+    setNotes(data)
+    
+    // Загружаем теги только при первой загрузке
+    if (allTags.length === 0) {
+      const tagsRes = await fetch('/api/notes')  // Без фильтров для тегов
+      if (tagsRes.ok) {
+        const allNotesData = await tagsRes.json()
+        setAllTags(Array.from(new Set(allNotesData.flatMap((n: NoteWithFolder) => n.tags))).sort())
+      }
+    }
+  }
+  
+  setIsLoading(false)
+}, [searchQuery, selectedTag, selectedFolder, allTags.length])
+
 
   // Загрузка данных при монтировании
   useEffect(() => {
@@ -32,91 +60,60 @@ export default function HomePage() {
       }
       
       // Затем загружаем заметки
-      await loadNotes()
+      await loadFilteredNotes()
       setIsLoading(false)
     }
     
     initializeData()
-  }, [isInitialized, loadFolders, loadNotes])
+  }, [isInitialized, loadFolders, loadFilteredNotes])
 
-  // Получаем все заметки из папок
-  const allNotes = folders.flatMap((folder) => folder.notes)
-
-  // Получаем все уникальные теги
-  const allTags = Array.from(
-    new Set(allNotes.flatMap((note) => note.tags))
-  ).sort()
-
-  // Фильтрация заметок
-  const filteredNotes = allNotes.filter((note) => {
-    // Поиск по тексту
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase()
-      const matchesSearch = 
-        note.title.toLowerCase().includes(query) ||
-        note.summary?.toLowerCase().includes(query) ||
-        note.content.toLowerCase().includes(query)
-      
-      if (!matchesSearch) return false
-    }
-    
-    // Фильтр по тегу
-    if (selectedTag && !note.tags.includes(selectedTag)) {
-      return false
-    }
-    
-    // Фильтр по папке
-    if (selectedFolder && note.folderId !== selectedFolder) {
-      return false
-    }
-    
-    return true
-  }).map((note) => ({
-    ...note,
-    folder: folders.find((f) => f.id === note.folderId) || { id: '', name: '' }
-  })) as NoteWithFolder[]
+  const filteredNotes = notes 
 
   // Группировка по дате
-  const groupedNotes = filteredNotes.reduce((acc, note) => {
+  const groupedNotes = useMemo(() => {
+    return filteredNotes.reduce((acc, note) => {
     const date = new Date(note.date)
     const now = new Date()
     const diff = now.getTime() - date.getTime()
     const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-
+  
     let group: string
     if (days === 0) group = "Сегодня"
     else if (days === 1) group = "Вчера"
     else if (days < 7) group = "Эта неделя"
     else group = "Ранее"
-
+  
     if (!acc[group]) acc[group] = []
     acc[group].push(note)
     return acc
   }, {} as Record<string, NoteWithFolder[]>)
 
-  const handleDelete = (noteId: string, folderId: string) => {
+  }, [filteredNotes]) 
+
+
+  const handleDelete = useCallback((noteId: string, folderId: string) => {
     removeNote(folderId, noteId)
-    // Не нужно обновлять filteredNotes вручную — store обновится автоматически
-  }
+    setNotes(prev => prev.filter(n => n.id !== noteId))
+  }, [removeNote])
 
-  const handleTagClick = (tag: string) => {
+  const handleTagClick = useCallback( (tag: string) => {
     setSelectedTag(selectedTag === tag ? null : tag)
-  }
+  }, [])
 
-  const clearFilters = () => {
+  const clearFilters = useCallback( () => {
     setSearchQuery("")
     setSelectedTag(null)
     setSelectedFolder(null)
-  }
+  }, [])
 
-  return (
+  return ( 
     <div className="w-full p-3 sm:p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto space-y-4 sm:space-y-6">
       {/* Заголовок и статистика */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div className="space-y-1">
           <h1 className="text-2xl sm:text-3xl font-bold">Главная</h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
-            {filteredNotes.length} из {allNotes.length} заметок
+            {filteredNotes.length} Заметок
           </p>
         </div>
 
@@ -265,7 +262,7 @@ export default function HomePage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="space-y-4"
+                className="space-y-5"
               >
                 <h2 className="text-lg font-semibold sticky top-0 bg-background/80 backdrop-blur py-2 z-10">
                   {group}

@@ -17,6 +17,7 @@ import {
   LogOut,
 } from "lucide-react"
 
+import { useRouter } from "next/navigation"  // ← ДОБАВИТЬ
 import { useNotesStore } from "@/store/notes.store"
 
 import {
@@ -126,7 +127,6 @@ export function AppSidebar() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogOpeNotes, setDialogOpenNotes] = useState(false)
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
-
   const folders = useNotesStore((s) => s.folders)
   const openFolders = useNotesStore((s) => s.openFolders)
   const toggleFolder = useNotesStore((s) => s.toggleFolder)
@@ -135,7 +135,7 @@ export function AppSidebar() {
   const loadFolders = useNotesStore((s) => s.loadFolders)
   const removeNote = useNotesStore((s) => s.removeNote)
   const removeFolder = useNotesStore((s) => s.removeFolder)
-
+  const router = useRouter()
   useEffect(() => {
     loadFolders()
   }, [loadFolders])
@@ -252,7 +252,7 @@ export function AppSidebar() {
                                   <ContextMenu>
                                     <ContextMenuTrigger asChild>
                                       <SidebarMenuSubButton
-                                        onClick={() => setActiveNote(note.id, folder.id)}
+                                        onClick={() => router.push(`/note/${note.id}`)}
                                         className={`
                                           cursor-pointer transition-colors
                                           ${activeNote?.noteId === note.id 
