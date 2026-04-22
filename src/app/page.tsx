@@ -12,95 +12,76 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { type NoteWithFolder } from "@/entities/note/types"
 
 export default function HomePage() {
-  const [isLoading, setIsLoading] = useState(true)
+// 1. Состояние фильтров (оставляем)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
 
-  const [notes, setNotes] = useState<NoteWithFolder[]>([])
-  const removeNote = useNotesStore((s) => s.removeNote)
-  const loadFolders = useNotesStore((s) => s.loadFolders)
-  const [allTags, setAllTags] = useState<string[]>([])
+  // 2. Данные из стора
+  const notes = useNotesStore((s) => s.notes)
   const folders = useNotesStore((s) => s.folders)
+  const isLoading = useNotesStore((s) => s.isLoading)
+  const loadNotes = useNotesStore((s) => s.loadNotes)
+  const loadFolders = useNotesStore((s) => s.loadFolders)
+  const removeNote = useNotesStore((s) => s.removeNote)
   const isInitialized = useNotesStore((s) => s.isInitialized)
 
-const loadFilteredNotes = useCallback(async () => {
-  setIsLoading(true)
-  
-  const params = new URLSearchParams()
-  if (searchQuery) params.set("search", searchQuery)
-  if (selectedTag) params.set("tag", selectedTag)
-  if (selectedFolder) params.set("folderId", selectedFolder)
-  
-  const res = await fetch(`/api/notes?${params}`)
-  if (res.ok) {
-    const data = await res.json()
-    setNotes(data)
-    
-    // Загружаем теги только при первой загрузке
-    if (allTags.length === 0) {
-      const tagsRes = await fetch('/api/notes')  // Без фильтров для тегов
-      if (tagsRes.ok) {
-        const allNotesData = await tagsRes.json()
-        setAllTags(Array.from(new Set(allNotesData.flatMap((n: NoteWithFolder) => n.tags))).sort())
-      }
-    }
-  }
-  
-  setIsLoading(false)
-}, [searchQuery, selectedTag, selectedFolder, allTags.length])
+  // 3. Загрузка данных при монтировании (всего один раз)
+useEffect(() => {
+  // Вызываем один раз. 
+  // Если данные уже есть в сторе и кэш не протух, 
+  // внутри loadNotes сработает return и запроса в 3 секунды не будет.
+  loadNotes();
+  loadFolders();
+}, []); // Только при старте
 
-
-  // Загрузка данных при монтировании
-  useEffect(() => {
-    const initializeData = async () => {
-      // Сначала загружаем папки если нужно
-      if (!isInitialized) {
-        await loadFolders()
-      }
+  // 4. Умная фильтрация (Прямо в браузере — это ЛЕТАЕТ!)
+  const filteredNotes = useMemo(() => {
+    return notes.filter((note) => {
+      const matchesSearch = searchQuery === "" || 
+        note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        note.content.toLowerCase().includes(searchQuery.toLowerCase())
       
-      // Затем загружаем заметки
-      await loadFilteredNotes()
-      setIsLoading(false)
-    }
-    
-    initializeData()
-  }, [isInitialized, loadFolders, loadFilteredNotes])
+      const matchesTag = !selectedTag || note.tags.includes(selectedTag)
+      const matchesFolder = !selectedFolder || note.folderId === selectedFolder
 
-  const filteredNotes = notes 
+      return matchesSearch && matchesTag && matchesFolder
+    })
+  }, [notes, searchQuery, selectedTag, selectedFolder])
 
-  // Группировка по дате
+  // 5. Динамический список тегов из ВСЕХ заметок
+  const allTags = useMemo(() => {
+    const tags = new Set<string>()
+    notes.forEach(note => note.tags.forEach(tag => tags.add(tag)))
+    return Array.from(tags).sort()
+  }, [notes])
+
+  // 6. Группировка (твоя логика, но на filteredNotes)
   const groupedNotes = useMemo(() => {
     return filteredNotes.reduce((acc, note) => {
-    const date = new Date(note.date)
-    const now = new Date()
-    const diff = now.getTime() - date.getTime()
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-  
-    let group: string
-    if (days === 0) group = "Сегодня"
-    else if (days === 1) group = "Вчера"
-    else if (days < 7) group = "Эта неделя"
-    else group = "Ранее"
-  
-    if (!acc[group]) acc[group] = []
-    acc[group].push(note)
-    return acc
-  }, {} as Record<string, NoteWithFolder[]>)
+      const date = new Date(note.date)
+      const now = new Date()
+      const diff = now.getTime() - date.getTime()
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+    
+      let group: string
+      if (days === 0) group = "Сегодня"
+      else if (days === 1) group = "Вчера"
+      else if (days < 7) group = "Эта неделя"
+      else group = "Ранее"
+    
+      if (!acc[group]) acc[group] = []
+      acc[group].push(note)
+      return acc
+    }, {} as Record<string, typeof notes>)
+  }, [filteredNotes])
 
-  }, [filteredNotes]) 
-
-
-  const handleDelete = useCallback((noteId: string, folderId: string) => {
-    removeNote(folderId, noteId)
-    setNotes(prev => prev.filter(n => n.id !== noteId))
-  }, [removeNote])
-
-  const handleTagClick = useCallback( (tag: string) => {
-    setSelectedTag(selectedTag === tag ? null : tag)
+  // Остальные функции
+  const handleTagClick = useCallback((tag: string) => {
+    setSelectedTag(prev => prev === tag ? null : tag)
   }, [])
 
-  const clearFilters = useCallback( () => {
+  const clearFilters = useCallback(() => {
     setSearchQuery("")
     setSelectedTag(null)
     setSelectedFolder(null)
@@ -280,8 +261,11 @@ const loadFilteredNotes = useCallback(async () => {
                         tags={note.tags}
                         readingTimeMin={note.readingTimeMin}
                         date={note.date}
-                        folder={note.folder}
-                        onDelete={() => handleDelete(note.id, note.folderId!)}
+                        folder={{
+                          id: note.folderId || "unknown",
+                          name: folders.find(f => f.id === note.folderId)?.title || "Без папки"
+                        }}
+                        onDelete={() => removeNote(note.folderId!, note.id)}
                         onTagClick={handleTagClick}
                       />
                     </div>

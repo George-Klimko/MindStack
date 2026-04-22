@@ -16,6 +16,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   openFolders: {},
   activeNote: null,
   isLoading: false,
+  notes: [],
   
   // Кэширование
   lastFetchTime: null,
@@ -42,33 +43,34 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     
     try {
       const res = await fetch("/api/notes")
-      if (!res.ok) return
+      if (!res.ok) throw new Error("Failed to fetch notes")
 
       const notes = (await res.json()) as (Note & { folder: { id: string; name: string } })[]
       
-      // Распределяем заметки по папкам
       set((state) => {
-        const newFolders = [...state.folders]
-        
-        notes.forEach((note) => {
-          const folderIndex = newFolders.findIndex((f) => f.id === note.folder.id)
-          if (folderIndex !== -1) {
-            // Проверяем нет ли уже такой заметки
-            const noteExists = newFolders[folderIndex].notes.some((n) => n.id === note.id)
-            if (!noteExists) {
-              newFolders[folderIndex] = {
-                ...newFolders[folderIndex],
-                notes: [note, ...newFolders[folderIndex].notes],
-              }
-            }
-          }
-        })
+
+        const flatNotes = notes.map(note => ({
+          ...note,
+          folderId: note.folder.id 
+        }))
+
+      const updatedFolders = state.folders.map(folder => {
+
+        const folderNotes = notes.filter(n => n.folder.id === folder.id)
         
         return {
-          folders: newFolders,
-          notesLastFetchTime: now,
-          isLoading: false,
+          ...folder,
+          notes: folderNotes 
         }
+      })
+
+      return {
+        notes: flatNotes,
+        folders: updatedFolders,
+        notesLastFetchTime: now,
+        isLoading: false,
+      }
+
       })
       
       console.log(`Loaded ${notes.length} notes`)
@@ -228,7 +230,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   },
 
   addNote: async (folderId, title) => {
-    // Оптимистичное создание заметки
+    // 1. Создаем временную заметку для мгновенного отображения (Optimistic UI)
     const tempNoteId = `temp-${Date.now()}`
     const tempNote: Note = {
       id: tempNoteId,
@@ -239,21 +241,19 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       link: "",
       summary: "",
       readingTimeMin: 0,
+      folderId, // Обязательно добавляем, чтобы она появилась в ленте
     }
 
-    // Сразу добавляем в стейт
+    // 2. Сразу пушим в оба списка
     set((state) => ({
       folders: state.folders.map((folder) =>
         folder.id === folderId
-          ? {
-              ...folder,
-              notes: [tempNote, ...folder.notes],
-            }
+          ? { ...folder, notes: [tempNote, ...folder.notes] }
           : folder
       ),
+      notes: [tempNote, ...state.notes], // Добавляем в начало плоского списка
     }))
 
-    // Отправляем на сервер
     try {
       const res = await fetch("/api/notes", {
         method: "POST",
@@ -261,47 +261,34 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         body: JSON.stringify({ folderId, title: title.trim() }),
       })
 
-      if (!res.ok) {
-        // Откат при ошибке
-        set((state) => ({
-          folders: state.folders.map((folder) =>
-            folder.id === folderId
-              ? {
-                  ...folder,
-                  notes: folder.notes.filter((n) => n.id !== tempNoteId),
-                }
-              : folder
-          ),
-        }))
-        return
-      }
+      if (!res.ok) throw new Error("Failed to create note")
 
-      const note = (await res.json()) as Note
+      const realNote = (await res.json()) as Note
+      // Добавляем folderId к ответу сервера, если его там нет
+      const finalNote = { ...realNote, folderId }
 
-      // Заменяем временную заметку на реальную с сервера
+      // 3. Заменяем временную заметку на реальную (с настоящим ID из базы)
       set((state) => ({
         folders: state.folders.map((folder) =>
           folder.id === folderId
             ? {
                 ...folder,
-                notes: folder.notes.map((n) =>
-                  n.id === tempNoteId ? note : n
-                ),
+                notes: folder.notes.map((n) => (n.id === tempNoteId ? finalNote : n)),
               }
             : folder
         ),
+        notes: state.notes.map((n) => (n.id === tempNoteId ? finalNote : n)),
       }))
-    } catch {
-      // Откат при ошибке сети
+    } catch (error) {
+      console.error("Error adding note:", error)
+      // 4. Откат: если сервер не ответил, удаляем временную заметку отовсюду
       set((state) => ({
         folders: state.folders.map((folder) =>
           folder.id === folderId
-            ? {
-                ...folder,
-                notes: folder.notes.filter((n) => n.id !== tempNoteId),
-              }
+            ? { ...folder, notes: folder.notes.filter((n) => n.id !== tempNoteId) }
             : folder
         ),
+        notes: state.notes.filter((n) => n.id !== tempNoteId),
       }))
     }
   },
@@ -317,39 +304,35 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   },
 
   removeNote: async (folderId, noteId) => {
-    // Сохраняем предыдущее состояние для отката
-    const previousFolders = useNotesStore.getState().folders
 
-    // Оптимистичное удаление — сразу удаляем из стейта
-    set((state) => ({
-      folders: state.folders.map((folder) =>
-        folder.id === folderId
-          ? {
-              ...folder,
-              notes: folder.notes.filter((n) => n.id !== noteId),
-            }
-          : folder
-      ),
-      // Сбрасываем activeNote если удалили активную заметку
-      activeNote: state.activeNote?.noteId === noteId ? null : state.activeNote,
-    }))
+  const previousFolders = get().folders
+  const previousNotes = get().notes
 
-    // Отправляем запрос на сервер
-    try {
-      const res = await fetch(`/api/notes/${noteId}`, {
-        method: "DELETE",
-        credentials: "include",
-      })
 
-      if (!res.ok) {
-        // Откат при ошибке
-        set({ folders: previousFolders })
-      }
-    } catch {
-      // Откат при ошибке сети
-      set({ folders: previousFolders })
-    }
-  },
+  set((state) => ({
+
+    folders: state.folders.map((folder) =>
+      folder.id === folderId
+        ? { ...folder, notes: folder.notes.filter((n) => n.id !== noteId) }
+        : folder
+    ),
+
+    notes: state.notes.filter((n) => n.id !== noteId),
+    activeNote: state.activeNote?.noteId === noteId ? null : state.activeNote,
+  }))
+
+  try {
+    const res = await fetch(`/api/notes/${noteId}`, {
+      method: "DELETE",
+      credentials: "include",
+    })
+
+    if (!res.ok) throw new Error()
+  } catch {
+    // Если сервер ответил ошибкой — возвращаем оба массива назад
+    set({ folders: previousFolders, notes: previousNotes })
+  }
+},
 
   toggleFolder: (folderId) =>
     set((state) => ({
@@ -360,12 +343,18 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     })),
 
   updateNote: async (folderId: string, noteId: string, updatedFields: Partial<Note>) => {
-    const previousFolders = useNotesStore.getState().folders
+    const previousFolders = get().folders
+    const previousNotes = get().notes
 
+    // 1. Оптимистичное обновление в стейте
     set((state) => ({
+      // Обновляем в плоском списке
+      notes: state.notes.map((note) =>
+        note.id === noteId ? { ...note, ...updatedFields } : note
+      ),
+      // Обновляем внутри папок
       folders: state.folders.map((folder) => {
         if (folder.id !== folderId) return folder
-
         return {
           ...folder,
           notes: folder.notes.map((note) =>
@@ -375,29 +364,19 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       }),
     }))
 
-    const payload: Partial<Note> = {}
-    if (updatedFields.title !== undefined) payload.title = updatedFields.title
-    if (updatedFields.content !== undefined) payload.content = updatedFields.content
-    if (updatedFields.link !== undefined) payload.link = updatedFields.link
-    if (updatedFields.tags !== undefined) payload.tags = updatedFields.tags
-    if (updatedFields.summary !== undefined) payload.summary = updatedFields.summary
-    if (updatedFields.readingTimeMin !== undefined) payload.readingTimeMin = updatedFields.readingTimeMin
+    // 2. Отправка на сервер (логика остается прежней)
+    try {
+      const res = await fetch(`/api/notes/${noteId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedFields),
+        credentials: "include",
+      })
 
-    if (Object.keys(payload).length > 0) {
-      try {
-        const res = await fetch(`/api/notes/${noteId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-          credentials: "include",
-        })
-
-        if (!res.ok) {
-          set({ folders: previousFolders })
-        }
-      } catch {
-        set({ folders: previousFolders })
-      }
+      if (!res.ok) throw new Error()
+    } catch {
+      // Откат при ошибке сети или сервера
+      set({ folders: previousFolders, notes: previousNotes })
     }
   },
 

@@ -12,7 +12,7 @@ export interface NotesState {
   openFolders: Record<string, boolean>
   activeNote: ActiveNote | null
   isLoading: boolean
-  
+  notes: Note[]
   // Кэширование
   lastFetchTime: number | null
   isInitialized: boolean

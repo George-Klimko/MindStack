@@ -54,6 +54,8 @@ model Folder {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   notes  Note[]
+
+  @@index([userId])
 }
 
 
@@ -69,4 +71,7 @@ model Note {
 
   folderId String
   folder   Folder  @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  @@index([folderId]) 
+  @@index([date])
 }
